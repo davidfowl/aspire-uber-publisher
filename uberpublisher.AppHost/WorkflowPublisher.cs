@@ -5,7 +5,7 @@ using Aspire.Hosting.Publishing;
 using Microsoft.Extensions.Logging;
 
 #pragma warning disable ASPIREPUBLISHERS001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progressReporter,  DistributedApplicationModel model, DistributedApplicationExecutionContext executionContext, ILogger logger)
+public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progressReporter, DistributedApplicationModel model, DistributedApplicationExecutionContext executionContext, ILogger logger)
 #pragma warning restore ASPIREPUBLISHERS001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 {
     private readonly WorkflowGraph _graph = new();
@@ -45,7 +45,12 @@ public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progress
                     var projectPath = p.GetProjectMetadata().ProjectPath;
                     var projectDir = Path.GetDirectoryName(projectPath) ?? throw new InvalidOperationException($"Failed to get directory name for {projectPath}");
 
-                    var publishContainerNode = new WorkflowNode($"push {p.Name}", new ShellExecutor("dotnet", $"publish $PROJECT_PATH -c Release /p:PublishProfile=DefaultContainer /p:ContainerRuntimeIdentifier=linux-x64 /p:ContainerRegistry=$AZURE_CONTAINER_REGISTRY_ENDPOINT", projectDir, []));
+                    var dotnetPublish = new ShellExecutor("dotnet", $"publish $PROJECT_PATH -c Release /p:PublishProfile=DefaultContainer /p:ContainerRuntimeIdentifier=linux-x64 /p:ContainerRegistry=$AZURE_CONTAINER_REGISTRY_ENDPOINT", projectDir, new()
+                    {
+                        ["PROJECT_PATH"] = projectPath,
+                    });
+
+                    var publishContainerNode = new WorkflowNode($"push {p.Name}", dotnetPublish);
                     _graph.Add(publishContainerNode);
 
                     // The only reason to wait on the push operation is that you need the container image or port
@@ -238,7 +243,7 @@ public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progress
         }
 
         await _graph.ExecuteAsync(progressReporter, cancellationToken);
-        
+
         var dump = _graph.Dump();
 
         _logger.LogInformation("Execution graph dump:\n{dump}", dump);
