@@ -111,7 +111,7 @@ public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progress
             // TODO: How do we discovery the resource group? When scope is null? 
             // This is anoter implicit dependency that we need to flow through the graph
 
-            var parameters = new StringBuilder($"deployment group create --resource-group {rg} --template-file $TEMPLATE_PATH");
+            var parameters = new StringBuilder($"deployment group create \\\n  --resource-group {rg} \\\n  --template-file $TEMPLATE_PATH");
 
             bool first = true;
 
@@ -120,12 +120,12 @@ public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progress
                 if (first)
                 {
                     first = false;
-                    parameters.Append(" --parameters ");
+                    parameters.Append(" \\\n  --parameters");
                 }
 
                 var value = ProcessValueToEnvExpression(v, map);
 
-                parameters.Append($"{k}={value} ");
+                parameters.Append($" \\\n    {k}={value}");
             }
 
             var publishSh = new ShellExecutor("az", parameters.ToString(), "", new()
@@ -176,10 +176,14 @@ public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progress
                     var registryEndpointEnv = ProcessValueToEnvExpression(deploymentTargetAnnotation.ContainerRegistryInfo?.Endpoint, map)
                      ?? throw new InvalidOperationException($"Failed to get registry endpoint for {p.Name}");
 
-                    var dotnetPublish = new ShellExecutor("dotnet", $"publish $PROJECT_PATH -c Release /p:PublishProfile=DefaultContainer /p:ContainerRuntimeIdentifier=linux-x64 /p:ContainerRegistry={registryEndpointEnv}", projectDir, new()
-                    {
-                        ["PROJECT_PATH"] = projectPath
-                    });
+                    var dotnetPublish = new ShellExecutor(
+                        "dotnet",
+                        "publish $PROJECT_PATH \\\n  -c Release \\\n  /p:PublishProfile=DefaultContainer \\\n  /p:ContainerRuntimeIdentifier=linux-x64 \\\n  /p:ContainerRegistry=" + registryEndpointEnv,
+                        projectDir,
+                        new()
+                        {
+                            ["PROJECT_PATH"] = projectPath
+                        });
 
                     foreach (var (k, v) in map)
                     {
