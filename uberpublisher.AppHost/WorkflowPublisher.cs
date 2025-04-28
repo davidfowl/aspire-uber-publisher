@@ -1,12 +1,12 @@
+#pragma warning disable ASPIRECOMPUTE001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+#pragma warning disable ASPIREPUBLISHERS001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+
 using System.Text;
 using Aspire.Hosting.Azure;
-using Aspire.Hosting.Azure.AppContainers;
 using Aspire.Hosting.Publishing;
 using Microsoft.Extensions.Logging;
 
-#pragma warning disable ASPIREPUBLISHERS001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progressReporter, DistributedApplicationModel model, DistributedApplicationExecutionContext executionContext, ILogger logger)
-#pragma warning restore ASPIREPUBLISHERS001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 {
     private readonly WorkflowGraph _graph = new();
     private readonly DistributedApplicationModel _model = model ?? throw new ArgumentNullException(nameof(model));
@@ -16,7 +16,198 @@ public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progress
 
     public async Task BuildExecutionGraph(CancellationToken cancellationToken)
     {
-        var nodeMap = new Dictionary<object, WorkflowNode>();
+        var nodeMap = new Dictionary<IResource, WorkflowNode>();
+
+        void ResolveDeps(object? v, WorkflowNode node) =>
+            Visit(v, val =>
+            {
+                if (val is BicepOutputReference o)
+                {
+                    node.RequiresOutput(nodeMap[o.Resource].Name, o.Name);
+
+                    if (nodeMap[o.Resource].Executor is ShellExecutor s)
+                    {
+                        // HACK: Pretend to have a value for this required output
+                        s.Outputs[o.Name] = "";
+                    }
+                }
+
+                if (val is ParameterResource p)
+                {
+                    // Parameters are always required outputs
+                    node.RequiresOutput(p.Name, "");
+                }
+
+                if (val is IResource r)
+                {
+                    node.DependsOn(nodeMap[r].Name);
+                }
+            });
+
+        // Returns the output name for a dependency
+        string OutputName(object? value) =>
+            value switch
+            {
+                BicepOutputReference o => $"{nodeMap[o.Resource].Name}.{o.Name}",
+                ParameterResource p => p.Name,
+                _ => throw new NotSupportedException($"Unsupported value type: {value?.GetType().Name}")
+            };
+
+        // Helper to convert a name to an environment variable friendly name
+        static string ToEnvName(string name) =>
+            "$" + name.ToUpperInvariant().Replace("-", "_").Replace(".", "_").Replace(" ", "_");
+
+        // Convert a value to set of environment variable
+        string? ProcessValueToEnvExpression(object? value, Dictionary<string, string> sourceToEnvMap)
+        {
+            string ToEnvAndMap(object? value)
+            {
+                if (value is BicepOutputReference o)
+                {
+                    ProcessResource(o.Resource);
+
+                    var envName = ToEnvName(o.ValueExpression[1..^1]);
+                    var outputName = OutputName(o);
+                    sourceToEnvMap[outputName] = envName;
+
+                    return envName;
+                }
+
+                if (value is ParameterResource p)
+                {
+                    ProcessResource(p);
+
+                    var envName = ToEnvName(p.Name);
+                    var outputName = OutputName(p);
+                    sourceToEnvMap[outputName] = envName;
+
+                    return envName;
+                }
+
+                throw new NotSupportedException($"Unsupported value type: {value?.GetType().Name}");
+            }
+
+            return value switch
+            {
+                string s => s,
+                BicepOutputReference o => ToEnvAndMap(o),
+                ParameterResource p => ToEnvAndMap(p),
+                ReferenceExpression re => string.Format(re.Format, re.ValueProviders.Select(v => ProcessValueToEnvExpression(v, sourceToEnvMap)).ToArray()),
+                IManifestExpressionProvider m when m.ValueExpression.EndsWith("containerImage}") => "$CONTAINER_IMAGE",
+                IManifestExpressionProvider m when m.ValueExpression.EndsWith("containerPort}") => "$CONTAINER_PORT",
+                null => null,
+                _ => throw new NotSupportedException($"Unsupported value type: {value?.GetType().Name}")
+            };
+        }
+
+        WorkflowNode ProcessAzureResource(AzureBicepResource bicepResource)
+        {
+            var bicepPath = bicepResource.GetBicepTemplateFile();
+
+            var map = new Dictionary<string, string>();
+
+            var rg = ProcessValueToEnvExpression(bicepResource.Scope?.ResourceGroup, map) ?? "$RG";
+
+            // TODO: How do we discovery the resource group? When scope is null? 
+            // This is anoter implicit dependency that we need to flow through the graph
+
+            var parameters = new StringBuilder($"deployment group create --resource-group {rg} --template-file $TEMPLATE_PATH");
+
+            bool first = true;
+
+            foreach (var (k, v) in bicepResource.Parameters)
+            {
+                if (first)
+                {
+                    first = false;
+                    parameters.Append(" --parameters ");
+                }
+
+                var value = ProcessValueToEnvExpression(v, map);
+
+                parameters.Append($"{k}={value} ");
+            }
+
+            var publishSh = new ShellExecutor("az", parameters.ToString(), "", new()
+            {
+                ["TEMPLATE_PATH"] = bicepPath.Path,
+            });
+
+            foreach (var (k, v) in map)
+            {
+                publishSh.InputEnvMap[k] = v;
+            }
+
+            var deployBicepNode = new WorkflowNode($"deploy {bicepResource.Name}", publishSh);
+
+            _graph.Add(deployBicepNode);
+
+            nodeMap[bicepResource] = deployBicepNode;
+
+            foreach (var (k, v) in bicepResource.Parameters)
+            {
+                ResolveDeps(v, deployBicepNode);
+            }
+
+            return deployBicepNode;
+        }
+
+        void ProcessResource(IResource resource)
+        {
+            if (!_processedResources.Add(resource.Name))
+            {
+                _logger.LogDebug("Resource {name} already processed", resource.Name);
+                return;
+            }
+
+            if (resource is ProjectResource p)
+            {
+                if (p.GetDeploymentTargetAnnotation() is { } deploymentTargetAnnotation &&
+                    deploymentTargetAnnotation.DeploymentTarget is AzureBicepResource b)
+                {
+                    // We don't have build parameters yet but they would be resolved here
+                    // We need to create 2 workflow nodes, one for the project build and another optional one for the inner deployment target resource
+
+                    var projectPath = p.GetProjectMetadata().ProjectPath;
+                    var projectDir = Path.GetDirectoryName(projectPath) ?? throw new InvalidOperationException($"Failed to get directory name for {projectPath}");
+
+                    var map = new Dictionary<string, string>();
+
+                    var registryEndpointEnv = ProcessValueToEnvExpression(deploymentTargetAnnotation.ContainerRegistryInfo?.Endpoint, map)
+                     ?? throw new InvalidOperationException($"Failed to get registry endpoint for {p.Name}");
+
+                    var dotnetPublish = new ShellExecutor("dotnet", $"publish $PROJECT_PATH -c Release /p:PublishProfile=DefaultContainer /p:ContainerRuntimeIdentifier=linux-x64 /p:ContainerRegistry={registryEndpointEnv}", projectDir, new()
+                    {
+                        ["PROJECT_PATH"] = projectPath
+                    });
+
+                    foreach (var (k, v) in map)
+                    {
+                        dotnetPublish.InputEnvMap[k] = v;
+                    }
+
+                    var publishContainerNode = new WorkflowNode($"push {p.Name}", dotnetPublish);
+
+                    _graph.Add(publishContainerNode);
+
+                    nodeMap[p] = publishContainerNode;
+
+                    ResolveDeps(deploymentTargetAnnotation.ContainerRegistryInfo?.Endpoint, publishContainerNode);
+
+                    var deployBicepNode = ProcessAzureResource(b);
+
+                    // The only reason to wait on the push operation is that you need the container image or port
+                    // We need a first class way of getting the container image name and port from the publish container node
+                    // Always assume there's a dependency
+                    deployBicepNode.DependsOn(publishContainerNode.Name);
+                }
+            }
+
+            if (resource is AzureBicepResource bicepResource)
+            {
+                ProcessAzureResource(bicepResource);
+            }
+        }
 
         try
         {
@@ -28,212 +219,9 @@ public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progress
                     continue;
                 }
 
-                if (!_processedResources.Add(resource.Name))
-                {
-                    _logger.LogDebug("Resource {name} already processed", resource.Name);
-                    continue;
-                }
-
-
                 _logger.LogDebug("Creating node for resource {name}", resource.Name);
 
-                if (resource is ProjectResource p)
-                {
-                    // We don't have build parameters yet but they would be resolved here
-                    // We need to create 2 workflow nodes, one for the project build and another optional one for the inner deployment target resource
-
-                    var projectPath = p.GetProjectMetadata().ProjectPath;
-                    var projectDir = Path.GetDirectoryName(projectPath) ?? throw new InvalidOperationException($"Failed to get directory name for {projectPath}");
-
-                    var dotnetPublish = new ShellExecutor("dotnet", $"publish $PROJECT_PATH -c Release /p:PublishProfile=DefaultContainer /p:ContainerRuntimeIdentifier=linux-x64 /p:ContainerRegistry=$AZURE_CONTAINER_REGISTRY_ENDPOINT", projectDir, new()
-                    {
-                        ["PROJECT_PATH"] = projectPath,
-                    });
-
-                    var publishContainerNode = new WorkflowNode($"push {p.Name}", dotnetPublish);
-                    _graph.Add(publishContainerNode);
-
-                    // The only reason to wait on the push operation is that you need the container image or port
-                    nodeMap[p] = publishContainerNode;
-
-                    if (p.TryGetLastAnnotation<DeploymentTargetAnnotation>(out var deploymentTargetAnnotation) &&
-                       deploymentTargetAnnotation.DeploymentTarget is AzureBicepResource b)
-                    {
-                        var bicepPath = b.GetBicepTemplateFile();
-                        var parameters = new StringBuilder($"deployment group create --resource-group $RG --template-file $TEMPLATE_PATH");
-                        var map = new Dictionary<string, string>();
-                        bool first = true;
-
-                        foreach (var (k, v) in b.Parameters)
-                        {
-                            if (first)
-                            {
-                                first = false;
-                                parameters.Append(" --parameters ");
-                            }
-
-                            if (v is string s)
-                            {
-                                parameters.Append($"{k}={s} ");
-                            }
-                            else if (v is BicepOutputReference o)
-                            {
-                                var name = $"{o.Resource.Name}_{o.Name}".ToUpperInvariant();
-                                parameters.Append($"{k}={name} ");
-
-                                map[$"deploy {o.Resource.Name}.{o.Name}"] = name;
-                            }
-                            else if (v is ParameterResource pp)
-                            {
-                                parameters.Append($"{k}=${pp.Name} ");
-                            }
-                        }
-
-                        var publishSh = new ShellExecutor("az", parameters.ToString(), "", new()
-                        {
-                            ["TEMPLATE_PATH"] = bicepPath.Path
-                        });
-
-                        foreach (var (k, v) in map)
-                        {
-                            publishSh.InputEnvMap[k] = v;
-                        }
-
-                        var publishBicepNode = new WorkflowNode($"deploy {b.Name}", publishSh);
-                        _graph.Add(publishBicepNode);
-
-                        nodeMap[b] = publishBicepNode;
-
-                        // We need a first class way of getting the container image name and port from the publish container node
-                        // Always assume there's a dependency
-                        publishBicepNode.DependsOn(publishContainerNode.Name);
-                    }
-                }
-
-                if (resource is AzureBicepResource bicepResource)
-                {
-                    var bicepPath = bicepResource.GetBicepTemplateFile();
-
-                    var parameters = new StringBuilder("deployment group create --resource-group $RG --template-file $TEMPLATE_PATH");
-                    var map = new Dictionary<string, string>();
-                    bool first = true;
-
-                    foreach (var (k, v) in bicepResource.Parameters)
-                    {
-                        if (first)
-                        {
-                            first = false;
-                            parameters.Append(" --parameters ");
-                        }
-
-                        if (v is string s)
-                        {
-                            parameters.Append($"{k}={s} ");
-                        }
-                        else if (v is BicepOutputReference o)
-                        {
-                            var n = nodeMap[o.Resource];
-
-                            var name = $"{o.Resource.Name}_{o.Name}".ToUpperInvariant();
-                            parameters.Append($"{k}={name} ");
-
-                            // HACK: this is a workaround for the fact that we don't have a way to get the output name from the resource
-                            map[$"{n.Name}.{o.Name}"] = name;
-                        }
-                        else if (v is ParameterResource pp)
-                        {
-                            parameters.Append($"{k}=${pp.Name} ");
-                        }
-                    }
-
-                    var publishSh = new ShellExecutor("az", parameters.ToString(), "", new()
-                    {
-                        ["TEMPLATE_PATH"] = bicepPath.Path
-                    });
-
-                    foreach (var (k, v) in map)
-                    {
-                        publishSh.InputEnvMap[k] = v;
-                    }
-
-                    var publishBicepNode = new WorkflowNode($"deploy {bicepResource.Name}", publishSh);
-
-                    _graph.Add(publishBicepNode);
-
-                    nodeMap[bicepResource] = publishBicepNode;
-                }
-            }
-            // HACK!
-            var aca = _model.Resources.OfType<AzureContainerAppEnvironmentResource>().FirstOrDefault();
-            BicepOutputReference? acr = null;
-
-            if (aca is not null)
-            {
-                acr = new BicepOutputReference("AZURE_CONTAINER_REGISTRY_ENDPOINT", aca);
-            }
-
-            // Second pass to resolve dependencies
-            foreach (var resource in _model.Resources)
-            {
-                if (!nodeMap.TryGetValue(resource, out var node))
-                {
-                    continue;
-                }
-
-                // Magic ACR reference (this should be in the app model)
-                if (acr is not null && resource is ProjectResource p)
-                {
-                    node.RequiresOutput(nodeMap[acr.Resource].Name, acr.Name);
-                }
-
-                if (resource is AzureBicepResource bicepResource)
-                {
-                    foreach (var (k, v) in bicepResource.Parameters)
-                    {
-                        Visit(v, val =>
-                        {
-                            if (val is BicepOutputReference o)
-                            {
-                                node.RequiresOutput(nodeMap[o.Resource].Name, o.Name);
-
-                                (nodeMap[o.Resource].Executor as ShellExecutor).Outputs[o.Name] = "";
-                            }
-
-                            if (val is IResource r)
-                            {
-                                node.DependsOn(nodeMap[r].Name);
-                            }
-                        });
-                    }
-                }
-
-                if (resource.TryGetLastAnnotation<DeploymentTargetAnnotation>(out var deploymentTargetAnnotation) &&
-                       deploymentTargetAnnotation.DeploymentTarget is AzureBicepResource b && nodeMap.TryGetValue(b, out var bNode))
-                {
-                    foreach (var (k, v) in b.Parameters)
-                    {
-                        Visit(v, val =>
-                        {
-                            if (val is BicepOutputReference o)
-                            {
-                                bNode.RequiresOutput(nodeMap[o.Resource].Name, o.Name);
-
-                                // HACK:
-                                (nodeMap[o.Resource].Executor as ShellExecutor).Outputs[o.Name] = "";
-                            }
-
-                            if (val is ParameterResource p)
-                            {
-                                node.RequiresOutput(p.Name, "");
-                            }
-
-                            if (val is IResource r)
-                            {
-                                bNode.DependsOn(nodeMap[r].Name);
-                            }
-                        });
-                    }
-                }
+                ProcessResource(resource);
             }
         }
         catch (Exception ex)

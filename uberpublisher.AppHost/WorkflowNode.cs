@@ -28,7 +28,7 @@ public class WorkflowNode
 
         if (!_dependencyOutputs.ContainsKey(dependencyName))
         {
-            _dependencyOutputs[dependencyName] = new HashSet<string>();
+            _dependencyOutputs[dependencyName] = [];
         }
 
         _dependencyOutputs[dependencyName].Add(outputKey);
