@@ -18,6 +18,10 @@ public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progress
     {
         var nodeMap = new Dictionary<IResource, WorkflowNode>();
 
+        var defaultResourceGroupParameter = new ParameterResource("resourceGroup", _ => "", secret: false);
+
+        model.Resources.Add(defaultResourceGroupParameter);
+
         void ResolveDeps(object? v, WorkflowNode node) =>
             Visit(v, val =>
             {
@@ -35,7 +39,13 @@ public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progress
                 if (val is ParameterResource p)
                 {
                     // Parameters are always required outputs
-                    node.RequiresOutput(p.Name, "");
+                    node.RequiresOutput(nodeMap[p].Name, "value");
+
+                    if (nodeMap[p].Executor is ShellExecutor s)
+                    {
+                        // HACK: Pretend to have a value for this required output
+                        s.Outputs["value"] = "";
+                    }
                 }
 
                 if (val is IResource r)
@@ -49,7 +59,7 @@ public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progress
             value switch
             {
                 BicepOutputReference o => $"{nodeMap[o.Resource].Name}.{o.Name}",
-                ParameterResource p => p.Name,
+                ParameterResource p => $"{nodeMap[p].Name}.value",
                 _ => throw new NotSupportedException($"Unsupported value type: {value?.GetType().Name}")
             };
 
@@ -106,12 +116,16 @@ public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progress
 
             var map = new Dictionary<string, string>();
 
-            var rg = ProcessValueToEnvExpression(bicepResource.Scope?.ResourceGroup, map) ?? "$RG";
+            // Set the default resource group parameter if not set
+            bicepResource.Scope ??= new(defaultResourceGroupParameter);
+
+            var rgEnv = ProcessValueToEnvExpression(bicepResource.Scope.ResourceGroup, map) ??
+                throw new InvalidOperationException($"Failed to get resource group for {bicepResource.Name}");
 
             // TODO: How do we discovery the resource group? When scope is null? 
             // This is anoter implicit dependency that we need to flow through the graph
 
-            var parameters = new StringBuilder($"deployment group create \\\n  --resource-group {rg} \\\n  --template-file $TEMPLATE_PATH");
+            var parameters = new StringBuilder($"deployment group create \\\n  --resource-group {rgEnv} \\\n  --template-file $TEMPLATE_PATH");
 
             bool first = true;
 
@@ -144,12 +158,61 @@ public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progress
 
             nodeMap[bicepResource] = deployBicepNode;
 
+            ResolveDeps(bicepResource.Scope.ResourceGroup, deployBicepNode);
+
             foreach (var (k, v) in bicepResource.Parameters)
             {
                 ResolveDeps(v, deployBicepNode);
             }
 
             return deployBicepNode;
+        }
+
+        void ProcessProjectResource(ProjectResource projectResource)
+        {
+            if (projectResource.GetDeploymentTargetAnnotation() is { } deploymentTargetAnnotation &&
+                deploymentTargetAnnotation.DeploymentTarget is AzureBicepResource b)
+            {
+                // We don't have build parameters yet but they would be resolved here
+                // We need to create 2 workflow nodes, one for the project build and another optional one for the inner deployment target resource
+
+                var projectPath = projectResource.GetProjectMetadata().ProjectPath;
+                var projectDir = Path.GetDirectoryName(projectPath) ?? throw new InvalidOperationException($"Failed to get directory name for {projectPath}");
+
+                var map = new Dictionary<string, string>();
+
+                var registryEndpointEnv = ProcessValueToEnvExpression(deploymentTargetAnnotation.ContainerRegistryInfo?.Endpoint, map)
+                    ?? throw new InvalidOperationException($"Failed to get registry endpoint for {projectResource.Name}");
+
+                var dotnetPublish = new ShellExecutor(
+                    "dotnet",
+                    "publish $PROJECT_PATH \\\n  -c Release \\\n  /p:PublishProfile=DefaultContainer \\\n  /p:ContainerRuntimeIdentifier=linux-x64 \\\n  /p:ContainerRegistry=" + registryEndpointEnv,
+                    projectDir,
+                    new()
+                    {
+                        ["PROJECT_PATH"] = projectPath
+                    });
+
+                foreach (var (k, v) in map)
+                {
+                    dotnetPublish.InputEnvMap[k] = v;
+                }
+
+                var publishContainerNode = new WorkflowNode($"push {projectResource.Name}", dotnetPublish);
+
+                _graph.Add(publishContainerNode);
+
+                nodeMap[projectResource] = publishContainerNode;
+
+                ResolveDeps(deploymentTargetAnnotation.ContainerRegistryInfo?.Endpoint, publishContainerNode);
+
+                var deployBicepNode = ProcessAzureResource(b);
+
+                // The only reason to wait on the push operation is that you need the container image or port
+                // We need a first class way of getting the container image name and port from the publish container node
+                // Always assume there's a dependency
+                deployBicepNode.DependsOn(publishContainerNode.Name);
+            }
         }
 
         void ProcessResource(IResource resource)
@@ -162,54 +225,21 @@ public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progress
 
             if (resource is ProjectResource p)
             {
-                if (p.GetDeploymentTargetAnnotation() is { } deploymentTargetAnnotation &&
-                    deploymentTargetAnnotation.DeploymentTarget is AzureBicepResource b)
-                {
-                    // We don't have build parameters yet but they would be resolved here
-                    // We need to create 2 workflow nodes, one for the project build and another optional one for the inner deployment target resource
-
-                    var projectPath = p.GetProjectMetadata().ProjectPath;
-                    var projectDir = Path.GetDirectoryName(projectPath) ?? throw new InvalidOperationException($"Failed to get directory name for {projectPath}");
-
-                    var map = new Dictionary<string, string>();
-
-                    var registryEndpointEnv = ProcessValueToEnvExpression(deploymentTargetAnnotation.ContainerRegistryInfo?.Endpoint, map)
-                     ?? throw new InvalidOperationException($"Failed to get registry endpoint for {p.Name}");
-
-                    var dotnetPublish = new ShellExecutor(
-                        "dotnet",
-                        "publish $PROJECT_PATH \\\n  -c Release \\\n  /p:PublishProfile=DefaultContainer \\\n  /p:ContainerRuntimeIdentifier=linux-x64 \\\n  /p:ContainerRegistry=" + registryEndpointEnv,
-                        projectDir,
-                        new()
-                        {
-                            ["PROJECT_PATH"] = projectPath
-                        });
-
-                    foreach (var (k, v) in map)
-                    {
-                        dotnetPublish.InputEnvMap[k] = v;
-                    }
-
-                    var publishContainerNode = new WorkflowNode($"push {p.Name}", dotnetPublish);
-
-                    _graph.Add(publishContainerNode);
-
-                    nodeMap[p] = publishContainerNode;
-
-                    ResolveDeps(deploymentTargetAnnotation.ContainerRegistryInfo?.Endpoint, publishContainerNode);
-
-                    var deployBicepNode = ProcessAzureResource(b);
-
-                    // The only reason to wait on the push operation is that you need the container image or port
-                    // We need a first class way of getting the container image name and port from the publish container node
-                    // Always assume there's a dependency
-                    deployBicepNode.DependsOn(publishContainerNode.Name);
-                }
+                ProcessProjectResource(p);
             }
 
             if (resource is AzureBicepResource bicepResource)
             {
                 ProcessAzureResource(bicepResource);
+            }
+
+            if (resource is ParameterResource parameterResource)
+            {
+                var node = new WorkflowNode($"parameter {parameterResource.Name}", new ShellExecutor(ToEnvName(parameterResource.Name), "", "", []));
+
+                _graph.Add(node);
+
+                nodeMap[parameterResource] = node;
             }
         }
 
