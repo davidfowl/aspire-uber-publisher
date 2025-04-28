@@ -42,57 +42,56 @@ public class WorkflowGraph
                     $"Deadlock detected in workflow graph. Unresolved nodes: {string.Join(", ", unresolvedNodes)}");
             }
 
-            var tasks = availableNodes.Select(node =>
+            // Sequential execution instead of parallel
+            foreach (var node in availableNodes)
             {
                 inProgress.Add(node.Name);
-                return Task.Run(async () =>
+                var act = await progressReporter.CreateActivityAsync(node.Name, $"Executing {node.Name}", false, cancellationToken);
+                Console.WriteLine($"Executing \"{node.Name}\"");
+
+                try
                 {
-                    var act = await progressReporter.CreateActivityAsync(node.Name, $"Executing {node.Name}", false, cancellationToken);
-
-                    try
+                    // Create a dictionary of required inputs with source node context
+                    var requiredInputs = new Dictionary<string, string>();
+                    foreach (var dep in node.Dependencies)
                     {
-                        // Create a dictionary of required inputs with source node context
-                        var requiredInputs = new Dictionary<string, string>();
-                        foreach (var dep in node.Dependencies)
+                        foreach (var output in node.GetRequiredOutputs(dep))
                         {
-                            foreach (var output in node.GetRequiredOutputs(dep))
+                            var key = (dep, output);
+                            if (outputs.TryGetValue(key, out var value))
                             {
-                                var key = (dep, output);
-                                if (outputs.TryGetValue(key, out var value))
-                                {
-                                    requiredInputs[$"{dep}.{output}"] = value;
-                                }
+                                requiredInputs[$"{dep}.{output}"] = value;
                             }
                         }
+                    }
 
-                        await node.ExecuteAsync(requiredInputs, cancellationToken);
+                    await node.ExecuteAsync(requiredInputs, cancellationToken);
 
-                        lock (outputs)
+                    lock (outputs)
+                    {
+                        foreach (var (outputName, outputValue) in node.Outputs)
                         {
-                            foreach (var (outputName, outputValue) in node.Outputs)
-                            {
-                                outputs[(node.Name, outputName)] = outputValue;
-                            }
-                        }
-
-                        lock (completed)
-                        {
-                            completed.Add(node.Name);
+                            outputs[(node.Name, outputName)] = outputValue;
                         }
                     }
-                    catch (Exception)
-                    {
-                        await progressReporter.UpdateActivityStatusAsync(act, status => status with { IsError = true }, cancellationToken);
-                    }
-                    finally
-                    {
-                        inProgress.Remove(node.Name);
-                        await progressReporter.UpdateActivityStatusAsync(act, status => status with { IsComplete=true }, cancellationToken);
-                    }
-                });
-            }).ToList();
 
-            await Task.WhenAll(tasks);
+                    lock (completed)
+                    {
+                        completed.Add(node.Name);
+                    }
+                }
+                catch (Exception)
+                {
+                    await progressReporter.UpdateActivityStatusAsync(act, status => status with { IsError = true }, cancellationToken);
+                }
+                finally
+                {
+                    inProgress.Remove(node.Name);
+                    await progressReporter.UpdateActivityStatusAsync(act, status => status with { IsComplete = true }, cancellationToken);
+                }
+
+                System.Console.WriteLine();
+            }
         }
     }
 
