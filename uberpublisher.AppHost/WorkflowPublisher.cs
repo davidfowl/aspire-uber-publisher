@@ -323,7 +323,7 @@ internal class ShellExecutor(string command,
         {
             if (InputEnvMap.TryGetValue(key, out var envKey))
             {
-                envVariables[envKey] = key;
+                envVariables[envKey] = $"OUTPUT('{key}')";
             }
         }
 
