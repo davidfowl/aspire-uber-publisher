@@ -13,7 +13,7 @@ internal class UberResource : Resource
     {
         var progressReporter = context.Services.GetRequiredService<IPublishingActivityProgressReporter>();
 
-        return new WorkflowGraphPublisher(
+        return new WorkflowGraphPublishingContext(
             progressReporter,
             context.Model,
             context.ExecutionContext,

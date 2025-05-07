@@ -6,7 +6,7 @@ using Aspire.Hosting.Azure;
 using Aspire.Hosting.Publishing;
 using Microsoft.Extensions.Logging;
 
-public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progressReporter, DistributedApplicationModel model, DistributedApplicationExecutionContext executionContext, ILogger logger)
+public class WorkflowGraphPublishingContext(IPublishingActivityProgressReporter progressReporter, DistributedApplicationModel model, DistributedApplicationExecutionContext executionContext, ILogger logger)
 {
     private readonly WorkflowGraph _graph = new();
     private readonly DistributedApplicationModel _model = model ?? throw new ArgumentNullException(nameof(model));
