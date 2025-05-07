@@ -149,7 +149,7 @@ public class WorkflowGraph
 
         foreach (var (level, nodes) in executionLevels.Select((n, i) => (i + 1, n)))
         {
-            sb.AppendLine($"Level {level}:");
+            sb.AppendLine($"Stage {level}:");
             foreach (var node in nodes)
             {
                 var requiredOutputs = node.Dependencies
