@@ -1,17 +1,17 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-builder.AddUberPublisher();
+builder.AddUberResource("uber");
 
 builder.AddAzureContainerAppEnvironment("cae");
 
 var blobs = builder.AddAzureStorage("storage").AddBlobs("blobs");
 
 var apiService = builder.AddProject<Projects.uberpublisher_ApiService>("apiservice")
-    .WithHttpsHealthCheck("/health");
+    .WithHttpHealthCheck("/health");
 
 builder.AddProject<Projects.uberpublisher_Web>("webfrontend")
     .WithExternalHttpEndpoints()
-    .WithHttpsHealthCheck("/health")
+    .WithHttpHealthCheck("/health")
     .WithReference(apiService)
     .WaitFor(apiService)
     .WithReference(blobs);

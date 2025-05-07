@@ -1,0 +1,22 @@
+#pragma warning disable ASPIREPUBLISHERS001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+using Aspire.Hosting.Publishing;
+using Microsoft.Extensions.DependencyInjection;
+
+internal class UberResource : Resource
+{
+    public UberResource(string name) : base(name)
+    {
+        Annotations.Add(new PublishingCallbackAnnotation(PublishAsync));
+    }
+
+    private Task PublishAsync(PublishingContext context)
+    {
+        var progressReporter = context.Services.GetRequiredService<IPublishingActivityProgressReporter>();
+
+        return new WorkflowGraphPublisher(
+            progressReporter,
+            context.Model,
+            context.ExecutionContext,
+            context.Logger).BuildExecutionGraph(context.CancellationToken);
+    }
+}

@@ -20,8 +20,6 @@ public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progress
 
         var defaultResourceGroupParameter = new ParameterResource("resourceGroup", _ => "", secret: false);
 
-        model.Resources.Add(defaultResourceGroupParameter);
-
         void ResolveDeps(object? v, WorkflowNode node) =>
             Visit(v, val =>
             {
@@ -181,7 +179,7 @@ public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progress
 
                 var map = new Dictionary<string, string>();
 
-                var registryEndpointEnv = ProcessValueToEnvExpression(deploymentTargetAnnotation.ContainerRegistryInfo?.Endpoint, map)
+                var registryEndpointEnv = ProcessValueToEnvExpression(deploymentTargetAnnotation.ContainerRegistry?.Endpoint, map)
                     ?? throw new InvalidOperationException($"Failed to get registry endpoint for {projectResource.Name}");
 
                 var dotnetPublish = new ShellExecutor(
@@ -204,7 +202,7 @@ public class WorkflowGraphPublisher(IPublishingActivityProgressReporter progress
 
                 nodeMap[projectResource] = publishContainerNode;
 
-                ResolveDeps(deploymentTargetAnnotation.ContainerRegistryInfo?.Endpoint, publishContainerNode);
+                ResolveDeps(deploymentTargetAnnotation.ContainerRegistry?.Endpoint, publishContainerNode);
 
                 var deployBicepNode = ProcessAzureResource(b);
 
