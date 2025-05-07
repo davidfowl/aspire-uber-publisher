@@ -1,6 +1,6 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-builder.addw("uber");
+builder.AddWorkflowGraph("graph");
 
 builder.AddAzureContainerAppEnvironment("cae");
 
