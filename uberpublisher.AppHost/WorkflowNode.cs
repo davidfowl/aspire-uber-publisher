@@ -44,9 +44,9 @@ public class WorkflowNode
         return Enumerable.Empty<string>();
     }
 
-    public async Task ExecuteAsync(IDictionary<string, string> inputs, CancellationToken cancellationToken = default)
+    public async Task ExecuteAsync(WorkflowExecutionContext context)
     {
-        _outputs = await _executor.ExecuteAsync(inputs, cancellationToken);
+        _outputs = await _executor.ExecuteAsync(context);
     }
 
     public override string ToString()

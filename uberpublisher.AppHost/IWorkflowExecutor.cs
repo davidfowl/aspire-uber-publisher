@@ -1,6 +1,11 @@
 public interface IWorkflowExecutor
 {
-    Task<IDictionary<string, string>> ExecuteAsync(
-        IDictionary<string, string> requiredInputs,
-        CancellationToken cancellationToken = default);
+    Task<IDictionary<string, string>> ExecuteAsync(WorkflowExecutionContext context);
+}
+
+public class WorkflowExecutionContext
+{
+    public required string NodeName { get; init; }
+    public required IDictionary<string, string> RequiredInputs { get; init; }
+    public required CancellationToken CancellationToken { get; init; }
 }

@@ -271,9 +271,9 @@ public class WorkflowGraphPublishingContext(
 
         var dump = _graph.Dump();
 
-        File.WriteAllText(Path.Combine(outputPath, "graph.txt"), dump);
+        Directory.CreateDirectory(outputPath);
 
-        _logger.LogInformation("Execution graph dump:\n{dump}", dump);
+        File.WriteAllText(Path.Combine(outputPath, "graph.txt"), dump);
     }
 
     private static void Visit(object? value, Action<object> visitor) =>
@@ -307,7 +307,7 @@ internal class ShellExecutor(string command,
 
     public Dictionary<string, string> Outputs { get; } = [];
 
-    public async Task<IDictionary<string, string>> ExecuteAsync(IDictionary<string, string> requiredInputs, CancellationToken cancellationToken = default)
+    public async Task<IDictionary<string, string>> ExecuteAsync(WorkflowExecutionContext context)
     {
         Console.WriteLine($"Would execute command: {command} {args}");
         if (!string.IsNullOrEmpty(workingDirectory))
@@ -324,7 +324,7 @@ internal class ShellExecutor(string command,
         // await Task.Delay(Random.Shared.Next(1000, 10000), cancellationToken); // Simulate async work
 
         // Map required inputs to environment variables
-        foreach (var (key, value) in requiredInputs)
+        foreach (var (key, value) in context.RequiredInputs)
         {
             if (InputEnvMap.TryGetValue(key, out var envKey))
             {

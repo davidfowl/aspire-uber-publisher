@@ -64,8 +64,14 @@ public class WorkflowGraph
                             }
                         }
                     }
-
-                    await node.ExecuteAsync(requiredInputs, cancellationToken);
+                    var context = new WorkflowExecutionContext
+                    {
+                        NodeName = node.Name,
+                        RequiredInputs = requiredInputs,
+                        CancellationToken = cancellationToken
+                    };
+                    
+                    await node.ExecuteAsync(context);
 
                     lock (outputs)
                     {
