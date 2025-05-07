@@ -101,8 +101,8 @@ public class WorkflowGraphPublishingContext(IPublishingActivityProgressReporter 
                 BicepOutputReference o => ToEnvAndMap(o),
                 ParameterResource p => ToEnvAndMap(p),
                 ReferenceExpression re => string.Format(re.Format, re.ValueProviders.Select(v => ProcessValueToEnvExpression(v, sourceToEnvMap)).ToArray()),
-                IManifestExpressionProvider m when m.ValueExpression.EndsWith("containerImage}") => "$CONTAINER_IMAGE",
-                IManifestExpressionProvider m when m.ValueExpression.EndsWith("containerPort}") => "$CONTAINER_PORT",
+                ContainerImageReference => "$CONTAINER_IMAGE",
+                ContainerPortReference => "$CONTAINER_PORT",
                 null => null,
                 _ => throw new NotSupportedException($"Unsupported value type: {value?.GetType().Name}")
             };
