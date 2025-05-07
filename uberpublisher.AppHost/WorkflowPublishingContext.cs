@@ -6,7 +6,12 @@ using Aspire.Hosting.Azure;
 using Aspire.Hosting.Publishing;
 using Microsoft.Extensions.Logging;
 
-public class WorkflowGraphPublishingContext(IPublishingActivityProgressReporter progressReporter, DistributedApplicationModel model, DistributedApplicationExecutionContext executionContext, ILogger logger)
+public class WorkflowGraphPublishingContext(
+    IPublishingActivityProgressReporter progressReporter,
+    DistributedApplicationModel model,
+    DistributedApplicationExecutionContext executionContext,
+    string outputPath,
+    ILogger logger)
 {
     private readonly WorkflowGraph _graph = new();
     private readonly DistributedApplicationModel _model = model ?? throw new ArgumentNullException(nameof(model));
@@ -265,6 +270,8 @@ public class WorkflowGraphPublishingContext(IPublishingActivityProgressReporter 
         await _graph.ExecuteAsync(progressReporter, cancellationToken);
 
         var dump = _graph.Dump();
+
+        File.WriteAllText(Path.Combine(outputPath, "graph.txt"), dump);
 
         _logger.LogInformation("Execution graph dump:\n{dump}", dump);
     }

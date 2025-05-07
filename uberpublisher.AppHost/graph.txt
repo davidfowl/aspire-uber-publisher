@@ -1,0 +1,13 @@
+Level 1:
+  - parameter resourceGroup ($RESOURCEGROUP)
+Level 2:
+  - deploy cae (az) [Requires Outputs: parameter resourceGroup.value]
+  - deploy storage (az) [Requires Outputs: parameter resourceGroup.value]
+  - deploy webfrontend-identity (az) [Requires Outputs: parameter resourceGroup.value]
+Level 3:
+  - deploy webfrontend-roles-storage (az) [Requires Outputs: parameter resourceGroup.value, deploy storage.name, deploy webfrontend-identity.principalId]
+  - push apiservice (dotnet) [Requires Outputs: deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT]
+  - push webfrontend (dotnet) [Requires Outputs: deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT]
+Level 4:
+  - deploy apiservice (az) [Requires Outputs: parameter resourceGroup.value, deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN, deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_ID, deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT, deploy cae.AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID]
+  - deploy webfrontend (az) [Requires Outputs: parameter resourceGroup.value, deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN, deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_ID, deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT, deploy cae.AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID, deploy webfrontend-identity.id, deploy webfrontend-identity.clientId, deploy storage.blobEndpoint]

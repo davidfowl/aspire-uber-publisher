@@ -17,6 +17,7 @@ internal class UberResource : Resource
             progressReporter,
             context.Model,
             context.ExecutionContext,
+            context.OutputPath,
             context.Logger).BuildExecutionGraph(context.CancellationToken);
     }
 }
