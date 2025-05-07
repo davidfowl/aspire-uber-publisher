@@ -1,6 +1,6 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-builder.AddUberResource("uber");
+builder.addw("uber");
 
 builder.AddAzureContainerAppEnvironment("cae");
 

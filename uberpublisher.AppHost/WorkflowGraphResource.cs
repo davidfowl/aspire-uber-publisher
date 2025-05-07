@@ -2,9 +2,9 @@
 using Aspire.Hosting.Publishing;
 using Microsoft.Extensions.DependencyInjection;
 
-internal class UberResource : Resource
+internal class WorkflowGraphResource : Resource
 {
-    public UberResource(string name) : base(name)
+    public WorkflowGraphResource(string name) : base(name)
     {
         Annotations.Add(new PublishingCallbackAnnotation(PublishAsync));
     }
