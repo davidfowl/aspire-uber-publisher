@@ -46,8 +46,8 @@ public class WorkflowGraph
             foreach (var node in availableNodes)
             {
                 inProgress.Add(node.Name);
-                var act = await progressReporter.CreateActivityAsync(node.Name, $"Executing {node.Name}", false, cancellationToken);
-                Console.WriteLine($"Executing \"{node.Name}\"");
+                // var act = await progressReporter.CreateActivityAsync(node.Name, $"Executing {node.Name}", false, cancellationToken);
+                // Console.WriteLine($"Executing \"{node.Name}\"");
 
                 try
                 {
@@ -82,12 +82,12 @@ public class WorkflowGraph
                 }
                 catch (Exception)
                 {
-                    await progressReporter.UpdateActivityStatusAsync(act, status => status with { IsError = true }, cancellationToken);
+                    // await progressReporter.UpdateActivityStatusAsync(act, status => status with { IsError = true }, cancellationToken);
                 }
                 finally
                 {
                     inProgress.Remove(node.Name);
-                    await progressReporter.UpdateActivityStatusAsync(act, status => status with { IsComplete = true }, cancellationToken);
+                    // await progressReporter.UpdateActivityStatusAsync(act, status => status with { IsComplete = true }, cancellationToken);
                 }
 
                 System.Console.WriteLine();
