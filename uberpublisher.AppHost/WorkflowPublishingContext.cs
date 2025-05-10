@@ -22,8 +22,7 @@ public class WorkflowGraphPublishingContext(
     public async Task BuildExecutionGraph(CancellationToken cancellationToken)
     {
         var nodeMap = new Dictionary<IResource, WorkflowNode>();
-
-        var defaultResourceGroupParameter = new ParameterResource("resourceGroup", _ => "", secret: false);
+        AzureEnvironmentResource? azEnv = null;
 
         void ResolveDeps(object? v, WorkflowNode node) =>
             Visit(v, val =>
@@ -119,16 +118,24 @@ public class WorkflowGraphPublishingContext(
 
             var map = new Dictionary<string, string>();
 
-            // Set the default resource group parameter if not set
-            bicepResource.Scope ??= new(defaultResourceGroupParameter);
+            azEnv ??= _model.Resources.OfType<AzureEnvironmentResource>().SingleOrDefault()
+                ?? throw new InvalidOperationException("Azure environment resource not found");
 
-            var rgEnv = ProcessValueToEnvExpression(bicepResource.Scope.ResourceGroup, map) ??
+            object? resourceGroup = azEnv.ResourceGroupName;
+
+            if (bicepResource.TryGetLastAnnotation<ExistingAzureResourceAnnotation>(out var existingResourceAnnotation) &&
+                existingResourceAnnotation.ResourceGroup is { } rgName)
+            {
+                resourceGroup = rgName;
+            }
+
+            var rgEnv = ProcessValueToEnvExpression(resourceGroup, map) ??
                 throw new InvalidOperationException($"Failed to get resource group for {bicepResource.Name}");
 
-            // TODO: How do we discovery the resource group? When scope is null? 
-            // This is anoter implicit dependency that we need to flow through the graph
+            var locationEnv = ProcessValueToEnvExpression(azEnv.Location, map) ??
+                throw new InvalidOperationException($"Failed to get location for {bicepResource.Name}");
 
-            var parameters = new StringBuilder($"deployment group create \\\n  --resource-group {rgEnv} \\\n  --template-file $TEMPLATE_PATH");
+            var parameters = new StringBuilder($"deployment group create \\\n  --resource-group {rgEnv} \\\n --location {locationEnv} \\\n  --template-file $TEMPLATE_PATH");
 
             bool first = true;
 
@@ -161,7 +168,7 @@ public class WorkflowGraphPublishingContext(
 
             nodeMap[bicepResource] = deployBicepNode;
 
-            ResolveDeps(bicepResource.Scope.ResourceGroup, deployBicepNode);
+            ResolveDeps(resourceGroup, deployBicepNode);
 
             foreach (var (k, v) in bicepResource.Parameters)
             {
