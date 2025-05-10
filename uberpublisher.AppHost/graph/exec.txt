@@ -1,0 +1,139 @@
+Executing node parameter resourceGroupName with inputs: 
+RESOURCEGROUPNAME 
+Environment variables:
+Node parameter resourceGroupName executed successfully.
+
+Executing node parameter location with inputs: 
+LOCATION 
+Environment variables:
+Node parameter location executed successfully.
+
+Executing node parameter principalId with inputs: 
+PRINCIPALID 
+Environment variables:
+Node parameter principalId executed successfully.
+
+Executing node deploy cae with inputs: parameter resourceGroupName.value: , parameter principalId.value: 
+az deployment group create \
+  --resource-group $RESOURCEGROUPNAME \
+  --location $LOCATION \
+  --template-file $TEMPLATE_PATH \
+  --parameters \
+    userPrincipalId=$PRINCIPALID
+Environment variables:
+  TEMPLATE_PATH=cae\cae.bicep
+  RESOURCEGROUPNAME=OUTPUT('parameter resourceGroupName.value')
+  PRINCIPALID=OUTPUT('parameter principalId.value')
+Node deploy cae executed successfully.
+
+Executing node deploy storage with inputs: parameter resourceGroupName.value: 
+az deployment group create \
+  --resource-group $RESOURCEGROUPNAME \
+  --location $LOCATION \
+  --template-file $TEMPLATE_PATH
+Environment variables:
+  TEMPLATE_PATH=storage\storage.bicep
+  RESOURCEGROUPNAME=OUTPUT('parameter resourceGroupName.value')
+Node deploy storage executed successfully.
+
+Executing node deploy webfrontend-identity with inputs: parameter resourceGroupName.value: 
+az deployment group create \
+  --resource-group $RESOURCEGROUPNAME \
+  --location $LOCATION \
+  --template-file $TEMPLATE_PATH
+Environment variables:
+  TEMPLATE_PATH=webfrontend-identity\webfrontend-identity.bicep
+  RESOURCEGROUPNAME=OUTPUT('parameter resourceGroupName.value')
+Node deploy webfrontend-identity executed successfully.
+
+Executing node push apiservice with inputs: deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT: 
+dotnet publish $PROJECT_PATH \
+  -c Release \
+  /p:PublishProfile=DefaultContainer \
+  /p:ContainerRuntimeIdentifier=linux-x64 \
+  /p:ContainerRegistry=$CAE_OUTPUTS_AZURE_CONTAINER_REGISTRY_ENDPOINT
+Working directory: C:\dev\git\aspire-uber-publisher\uberpublisher.ApiService
+Environment variables:
+  PROJECT_PATH=C:\dev\git\aspire-uber-publisher\uberpublisher.ApiService\uberpublisher.ApiService.csproj
+  CAE_OUTPUTS_AZURE_CONTAINER_REGISTRY_ENDPOINT=OUTPUT('deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT')
+Node push apiservice executed successfully.
+
+Executing node push webfrontend with inputs: deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT: 
+dotnet publish $PROJECT_PATH \
+  -c Release \
+  /p:PublishProfile=DefaultContainer \
+  /p:ContainerRuntimeIdentifier=linux-x64 \
+  /p:ContainerRegistry=$CAE_OUTPUTS_AZURE_CONTAINER_REGISTRY_ENDPOINT
+Working directory: C:\dev\git\aspire-uber-publisher\uberpublisher.Web
+Environment variables:
+  PROJECT_PATH=C:\dev\git\aspire-uber-publisher\uberpublisher.Web\uberpublisher.Web.csproj
+  CAE_OUTPUTS_AZURE_CONTAINER_REGISTRY_ENDPOINT=OUTPUT('deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT')
+Node push webfrontend executed successfully.
+
+Executing node deploy webfrontend-roles-storage with inputs: parameter resourceGroupName.value: , deploy storage.name: , deploy webfrontend-identity.principalId: 
+az deployment group create \
+  --resource-group $RESOURCEGROUPNAME \
+  --location $LOCATION \
+  --template-file $TEMPLATE_PATH \
+  --parameters \
+    storage_outputs_name=$STORAGE_OUTPUTS_NAME \
+    principalId=$WEBFRONTEND_IDENTITY_OUTPUTS_PRINCIPALID
+Environment variables:
+  TEMPLATE_PATH=webfrontend-roles-storage\webfrontend-roles-storage.bicep
+  RESOURCEGROUPNAME=OUTPUT('parameter resourceGroupName.value')
+  STORAGE_OUTPUTS_NAME=OUTPUT('deploy storage.name')
+  WEBFRONTEND_IDENTITY_OUTPUTS_PRINCIPALID=OUTPUT('deploy webfrontend-identity.principalId')
+Node deploy webfrontend-roles-storage executed successfully.
+
+Executing node deploy apiservice with inputs: parameter resourceGroupName.value: , deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN: , deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_ID: , deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT: , deploy cae.AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID: , push apiservice.image: , push apiservice.port: 
+az deployment group create \
+  --resource-group $RESOURCEGROUPNAME \
+  --location $LOCATION \
+  --template-file $TEMPLATE_PATH \
+  --parameters \
+    cae_outputs_azure_container_apps_environment_default_domain=$CAE_OUTPUTS_AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN \
+    cae_outputs_azure_container_apps_environment_id=$CAE_OUTPUTS_AZURE_CONTAINER_APPS_ENVIRONMENT_ID \
+    cae_outputs_azure_container_registry_endpoint=$CAE_OUTPUTS_AZURE_CONTAINER_REGISTRY_ENDPOINT \
+    cae_outputs_azure_container_registry_managed_identity_id=$CAE_OUTPUTS_AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID \
+    apiservice_containerimage=$APISERVICE_IMAGE \
+    apiservice_containerport=$APISERVICE_PORT
+Environment variables:
+  TEMPLATE_PATH=apiservice\apiservice.bicep
+  RESOURCEGROUPNAME=OUTPUT('parameter resourceGroupName.value')
+  CAE_OUTPUTS_AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN=OUTPUT('deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN')
+  CAE_OUTPUTS_AZURE_CONTAINER_APPS_ENVIRONMENT_ID=OUTPUT('deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_ID')
+  CAE_OUTPUTS_AZURE_CONTAINER_REGISTRY_ENDPOINT=OUTPUT('deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT')
+  CAE_OUTPUTS_AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID=OUTPUT('deploy cae.AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID')
+  APISERVICE_IMAGE=OUTPUT('push apiservice.image')
+  APISERVICE_PORT=OUTPUT('push apiservice.port')
+Node deploy apiservice executed successfully.
+
+Executing node deploy webfrontend with inputs: parameter resourceGroupName.value: , deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN: , deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_ID: , deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT: , deploy cae.AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID: , push webfrontend.image: , push webfrontend.port: , deploy webfrontend-identity.id: , deploy webfrontend-identity.clientId: , deploy storage.blobEndpoint: 
+az deployment group create \
+  --resource-group $RESOURCEGROUPNAME \
+  --location $LOCATION \
+  --template-file $TEMPLATE_PATH \
+  --parameters \
+    cae_outputs_azure_container_apps_environment_default_domain=$CAE_OUTPUTS_AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN \
+    cae_outputs_azure_container_apps_environment_id=$CAE_OUTPUTS_AZURE_CONTAINER_APPS_ENVIRONMENT_ID \
+    cae_outputs_azure_container_registry_endpoint=$CAE_OUTPUTS_AZURE_CONTAINER_REGISTRY_ENDPOINT \
+    cae_outputs_azure_container_registry_managed_identity_id=$CAE_OUTPUTS_AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID \
+    webfrontend_containerimage=$WEBFRONTEND_IMAGE \
+    webfrontend_identity_outputs_id=$WEBFRONTEND_IDENTITY_OUTPUTS_ID \
+    webfrontend_containerport=$WEBFRONTEND_PORT \
+    storage_outputs_blobendpoint=$STORAGE_OUTPUTS_BLOBENDPOINT \
+    webfrontend_identity_outputs_clientid=$WEBFRONTEND_IDENTITY_OUTPUTS_CLIENTID
+Environment variables:
+  TEMPLATE_PATH=webfrontend\webfrontend.bicep
+  RESOURCEGROUPNAME=OUTPUT('parameter resourceGroupName.value')
+  CAE_OUTPUTS_AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN=OUTPUT('deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN')
+  CAE_OUTPUTS_AZURE_CONTAINER_APPS_ENVIRONMENT_ID=OUTPUT('deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_ID')
+  CAE_OUTPUTS_AZURE_CONTAINER_REGISTRY_ENDPOINT=OUTPUT('deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT')
+  CAE_OUTPUTS_AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID=OUTPUT('deploy cae.AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID')
+  WEBFRONTEND_IMAGE=OUTPUT('push webfrontend.image')
+  WEBFRONTEND_PORT=OUTPUT('push webfrontend.port')
+  WEBFRONTEND_IDENTITY_OUTPUTS_ID=OUTPUT('deploy webfrontend-identity.id')
+  WEBFRONTEND_IDENTITY_OUTPUTS_CLIENTID=OUTPUT('deploy webfrontend-identity.clientId')
+  STORAGE_OUTPUTS_BLOBENDPOINT=OUTPUT('deploy storage.blobEndpoint')
+Node deploy webfrontend executed successfully.
+

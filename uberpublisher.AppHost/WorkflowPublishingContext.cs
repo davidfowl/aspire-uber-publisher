@@ -9,11 +9,9 @@ using Microsoft.Extensions.Logging;
 public class WorkflowGraphPublishingContext(
     IPublishingActivityProgressReporter progressReporter,
     DistributedApplicationModel model,
-    DistributedApplicationExecutionContext executionContext,
     string outputPath,
     ILogger logger)
 {
-    private readonly WorkflowGraph _graph = new();
     private readonly DistributedApplicationModel _model = model ?? throw new ArgumentNullException(nameof(model));
     private readonly ILogger _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     private readonly Dictionary<string, (string Description, string? DefaultValue)> _env = [];
@@ -21,8 +19,10 @@ public class WorkflowGraphPublishingContext(
 
     public async Task BuildExecutionGraph(CancellationToken cancellationToken)
     {
+        using var writer = new StreamWriter(Path.Combine(outputPath, "exec.txt"));
+        var graph = new WorkflowGraph(writer);
+
         var nodeMap = new Dictionary<IResource, WorkflowNode>();
-        AzureEnvironmentResource? azEnv = null;
 
         void ResolveDeps(object? v, WorkflowNode node) =>
             Visit(v, val =>
@@ -50,6 +50,26 @@ public class WorkflowGraphPublishingContext(
                     }
                 }
 
+                if (val is ContainerImageReference cir)
+                {
+                    node.RequiresOutput(nodeMap[cir.Resource].Name, "image");
+
+                    if (nodeMap[cir.Resource].Executor is ShellExecutor s)
+                    {
+                        s.Outputs["image"] = "";
+                    }
+                }
+
+                if (val is ContainerPortReference cpr)
+                {
+                    node.RequiresOutput(nodeMap[cpr.Resource].Name, "port");
+
+                    if (nodeMap[cpr.Resource].Executor is ShellExecutor s)
+                    {
+                        s.Outputs["port"] = "";
+                    }
+                }
+
                 if (val is IResource r)
                 {
                     node.DependsOn(nodeMap[r].Name);
@@ -62,12 +82,14 @@ public class WorkflowGraphPublishingContext(
             {
                 BicepOutputReference o => $"{nodeMap[o.Resource].Name}.{o.Name}",
                 ParameterResource p => $"{nodeMap[p].Name}.value",
+                ContainerImageReference cir => $"{nodeMap[cir.Resource].Name}.image",
+                ContainerPortReference cpr => $"{nodeMap[cpr.Resource].Name}.port",
                 _ => throw new NotSupportedException($"Unsupported value type: {value?.GetType().Name}")
             };
 
         // Helper to convert a name to an environment variable friendly name
         static string ToEnvName(string name) =>
-            "$" + name.ToUpperInvariant().Replace("-", "_").Replace(".", "_").Replace(" ", "_");
+            name.ToUpperInvariant().Replace("-", "_").Replace(".", "_").Replace(" ", "_");
 
         // Convert a value to set of environment variable
         string? ProcessValueToEnvExpression(object? value, Dictionary<string, string> sourceToEnvMap)
@@ -82,7 +104,7 @@ public class WorkflowGraphPublishingContext(
                     var outputName = OutputName(o);
                     sourceToEnvMap[outputName] = envName;
 
-                    return envName;
+                    return $"${envName}";
                 }
 
                 if (value is ParameterResource p)
@@ -93,7 +115,29 @@ public class WorkflowGraphPublishingContext(
                     var outputName = OutputName(p);
                     sourceToEnvMap[outputName] = envName;
 
-                    return envName;
+                    return $"${envName}";
+                }
+
+                if (value is ContainerImageReference cir)
+                {
+                    ProcessResource(cir.Resource);
+
+                    var envName = ToEnvName(cir.Resource.Name + "_" + "image");
+                    var outputName = OutputName(cir);
+                    sourceToEnvMap[outputName] = envName;
+
+                    return $"${envName}";
+                }
+
+                if (value is ContainerPortReference cpr)
+                {
+                    ProcessResource(cpr.Resource);
+
+                    var envName = ToEnvName(cpr.Resource.Name + "_" + "port");
+                    var outputName = OutputName(cpr);
+                    sourceToEnvMap[outputName] = envName;
+
+                    return $"${envName}";
                 }
 
                 throw new NotSupportedException($"Unsupported value type: {value?.GetType().Name}");
@@ -105,16 +149,18 @@ public class WorkflowGraphPublishingContext(
                 BicepOutputReference o => ToEnvAndMap(o),
                 ParameterResource p => ToEnvAndMap(p),
                 ReferenceExpression re => string.Format(re.Format, re.ValueProviders.Select(v => ProcessValueToEnvExpression(v, sourceToEnvMap)).ToArray()),
-                ContainerImageReference => "$CONTAINER_IMAGE",
-                ContainerPortReference => "$CONTAINER_PORT",
+                ContainerImageReference cir => ToEnvAndMap(cir),
+                ContainerPortReference cpr => ToEnvAndMap(cpr),
                 null => null,
                 _ => throw new NotSupportedException($"Unsupported value type: {value?.GetType().Name}")
             };
         }
 
+        AzureEnvironmentResource? azEnv = null;
         WorkflowNode ProcessAzureResource(AzureBicepResource bicepResource)
         {
-            var bicepPath = bicepResource.GetBicepTemplateFile();
+            // This will force parameter resolution
+            using var bt = bicepResource.GetBicepTemplateFile();
 
             var map = new Dictionary<string, string>();
 
@@ -135,9 +181,15 @@ public class WorkflowGraphPublishingContext(
             var locationEnv = ProcessValueToEnvExpression(azEnv.Location, map) ??
                 throw new InvalidOperationException($"Failed to get location for {bicepResource.Name}");
 
-            var parameters = new StringBuilder($"deployment group create \\\n  --resource-group {rgEnv} \\\n --location {locationEnv} \\\n  --template-file $TEMPLATE_PATH");
+            var parameters = new StringBuilder($"deployment group create \\\n  --resource-group {rgEnv} \\\n  --location {locationEnv} \\\n  --template-file $TEMPLATE_PATH");
 
             bool first = true;
+
+            if (bicepResource.Parameters.TryGetValue(AzureBicepResource.KnownParameters.UserPrincipalId, out var userPrincipalId)
+                && userPrincipalId is null)
+            {
+                bicepResource.Parameters[AzureBicepResource.KnownParameters.UserPrincipalId] = azEnv.PrincipalId;
+            }
 
             foreach (var (k, v) in bicepResource.Parameters)
             {
@@ -154,7 +206,7 @@ public class WorkflowGraphPublishingContext(
 
             var publishSh = new ShellExecutor("az", parameters.ToString(), "", new()
             {
-                ["TEMPLATE_PATH"] = bicepPath.Path,
+                ["TEMPLATE_PATH"] = Path.Combine(bicepResource.Name, $"{bicepResource.Name}.bicep"),
             });
 
             foreach (var (k, v) in map)
@@ -164,7 +216,7 @@ public class WorkflowGraphPublishingContext(
 
             var deployBicepNode = new WorkflowNode($"deploy {bicepResource.Name}", publishSh);
 
-            _graph.Add(deployBicepNode);
+            graph.Add(deployBicepNode);
 
             nodeMap[bicepResource] = deployBicepNode;
 
@@ -210,18 +262,13 @@ public class WorkflowGraphPublishingContext(
 
                 var publishContainerNode = new WorkflowNode($"push {projectResource.Name}", dotnetPublish);
 
-                _graph.Add(publishContainerNode);
+                graph.Add(publishContainerNode);
 
                 nodeMap[projectResource] = publishContainerNode;
 
                 ResolveDeps(deploymentTargetAnnotation.ContainerRegistry?.Endpoint, publishContainerNode);
 
-                var deployBicepNode = ProcessAzureResource(b);
-
-                // The only reason to wait on the push operation is that you need the container image or port
-                // We need a first class way of getting the container image name and port from the publish container node
-                // Always assume there's a dependency
-                deployBicepNode.DependsOn(publishContainerNode.Name);
+                ProcessAzureResource(b);
             }
         }
 
@@ -247,7 +294,7 @@ public class WorkflowGraphPublishingContext(
             {
                 var node = new WorkflowNode($"parameter {parameterResource.Name}", new ShellExecutor(ToEnvName(parameterResource.Name), "", "", []));
 
-                _graph.Add(node);
+                graph.Add(node);
 
                 nodeMap[parameterResource] = node;
             }
@@ -274,9 +321,9 @@ public class WorkflowGraphPublishingContext(
             throw;
         }
 
-        await _graph.ExecuteAsync(progressReporter, cancellationToken);
+        await graph.ExecuteAsync(progressReporter, cancellationToken);
 
-        var dump = _graph.Dump();
+        var dump = graph.Dump();
 
         Directory.CreateDirectory(outputPath);
 
@@ -316,10 +363,10 @@ internal class ShellExecutor(string command,
 
     public async Task<IDictionary<string, string>> ExecuteAsync(WorkflowExecutionContext context)
     {
-        Console.WriteLine($"Would execute command: {command} {args}");
+        context.OutputStream.WriteLine($"{command} {args}");
         if (!string.IsNullOrEmpty(workingDirectory))
         {
-            Console.WriteLine($"Working directory: {workingDirectory}");
+            context.OutputStream.WriteLine($"Working directory: {workingDirectory}");
         }
 
         // Console.WriteLine("Required inputs:");
@@ -341,10 +388,10 @@ internal class ShellExecutor(string command,
 
         // As we're processing paramters, we map required outputs from a specific node execution as inputs
         // any node that declares a required output.
-        Console.WriteLine("Environment variables:");
+        context.OutputStream.WriteLine("Environment variables:");
         foreach (var env in envVariables)
         {
-            Console.WriteLine($"  {env.Key}={env.Value}");
+            context.OutputStream.WriteLine($"  {env.Key}={env.Value}");
         }
 
         return Outputs;

@@ -3,7 +3,7 @@
   "profiles": {
     "publish": {
       "commandName": "Project",
-      "commandLineArgs": "--publisher uber --output .",
+      "commandLineArgs": "--publisher default --output-path graph",
     },
     "https": {
       "commandName": "Project",

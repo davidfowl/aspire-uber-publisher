@@ -1,6 +1,6 @@
 using Aspire.Hosting.Publishing;
 
-public class WorkflowGraph
+public class WorkflowGraph(TextWriter textWriter)
 {
     private readonly Dictionary<string, WorkflowNode> _nodes = new();
 
@@ -66,12 +66,18 @@ public class WorkflowGraph
                     }
                     var context = new WorkflowExecutionContext
                     {
+                        OutputStream = textWriter,
                         NodeName = node.Name,
                         RequiredInputs = requiredInputs,
                         CancellationToken = cancellationToken
                     };
+
+                    context.OutputStream.WriteLine($"Executing node {node.Name} with inputs: {string.Join(", ", requiredInputs.Select(kvp => $"{kvp.Key}: {kvp.Value}"))}");
                     
                     await node.ExecuteAsync(context);
+
+                    context.OutputStream.WriteLine($"Node {node.Name} executed successfully.");
+                    context.OutputStream.WriteLine();
 
                     lock (outputs)
                     {

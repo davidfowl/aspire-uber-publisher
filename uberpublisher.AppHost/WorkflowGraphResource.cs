@@ -16,7 +16,6 @@ internal class WorkflowGraphResource : Resource
         return new WorkflowGraphPublishingContext(
             progressReporter,
             context.Model,
-            context.ExecutionContext,
             context.OutputPath,
             context.Logger).BuildExecutionGraph(context.CancellationToken);
     }
