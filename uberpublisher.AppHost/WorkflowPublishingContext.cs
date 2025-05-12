@@ -248,11 +248,11 @@ public class WorkflowGraphPublishingContext(
 
                 var dotnetPublish = new ShellExecutor(
                     "dotnet",
-                    "publish $PROJECT_PATH \\\n  -c Release \\\n  /p:PublishProfile=DefaultContainer \\\n  /p:ContainerRuntimeIdentifier=linux-x64 \\\n  /p:ContainerRegistry=" + registryEndpointEnv,
+                    $"publish $PROJECT_PATH \\\n  -c Release \\\n  /p:PublishProfile=DefaultContainer \\\n  /p:ContainerRuntimeIdentifier=linux-x64 \\\n  /p:ContainerRegistry={registryEndpointEnv}",
                     projectDir,
                     new()
                     {
-                        ["PROJECT_PATH"] = projectPath
+                        ["PROJECT_PATH"] = Path.GetRelativePath(outputPath, projectPath)
                     });
 
                 foreach (var (k, v) in map)
@@ -272,6 +272,49 @@ public class WorkflowGraphPublishingContext(
             }
         }
 
+        void ProcessContainerResource(ContainerResource containerResource)
+        {
+            if (containerResource.GetDeploymentTargetAnnotation() is { } deploymentTargetAnnotation &&
+                deploymentTargetAnnotation.DeploymentTarget is AzureBicepResource b)
+            {
+                if (containerResource.TryGetLastAnnotation<DockerfileBuildAnnotation>(out var buildAnnotation))
+                {
+                    // Docker build
+                    var dockerfilePath = buildAnnotation.DockerfilePath;
+                    var dockerContext = buildAnnotation.ContextPath;
+
+                    var map = new Dictionary<string, string>();
+
+                    var dockerBuild = new ShellExecutor(
+                        "docker",
+                        $"build \\\n  -t {containerResource.Name} \\\n  --file {dockerfilePath} \\\n  {dockerContext}",
+                        dockerContext,
+                        []
+                        );
+
+                    var registryEndpointEnv = ProcessValueToEnvExpression(deploymentTargetAnnotation.ContainerRegistry?.Endpoint, map)
+                        ?? throw new InvalidOperationException($"Failed to get registry endpoint for {containerResource.Name}");
+
+                    var dockerPush = new ShellExecutor(
+                        "docker",
+                        $"push {containerResource.Name}",
+                        dockerContext,
+                        new()
+                        {
+                            ["REGISTRY_ENDPOINT"] = registryEndpointEnv
+                        });
+
+                    var publishContainerNode = new WorkflowNode($"push {containerResource.Name}", new ShellExecutor("az", "container create", "", new()));
+
+                    graph.Add(publishContainerNode);
+
+                    nodeMap[containerResource] = publishContainerNode;
+                }
+
+                ProcessAzureResource(b);
+            }
+        }
+
         void ProcessResource(IResource resource)
         {
             if (!_processedResources.Add(resource.Name))
@@ -283,6 +326,11 @@ public class WorkflowGraphPublishingContext(
             if (resource is ProjectResource p)
             {
                 ProcessProjectResource(p);
+            }
+
+            if (resource is ContainerResource c)
+            {
+                ProcessContainerResource(c);
             }
 
             if (resource is AzureBicepResource bicepResource)

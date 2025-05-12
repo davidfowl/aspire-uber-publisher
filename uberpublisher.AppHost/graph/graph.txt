@@ -1,4 +1,5 @@
 Stage 1:
+  - parameter cache-password (CACHE_PASSWORD)
   - parameter location (LOCATION)
   - parameter principalId (PRINCIPALID)
   - parameter resourceGroupName (RESOURCEGROUPNAME)
@@ -7,9 +8,10 @@ Stage 2:
   - deploy storage (az) [Requires Outputs: parameter resourceGroupName.value]
   - deploy webfrontend-identity (az) [Requires Outputs: parameter resourceGroupName.value]
 Stage 3:
+  - deploy cache (az) [Requires Outputs: parameter resourceGroupName.value, deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN, deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_ID, parameter cache-password.value]
   - deploy webfrontend-roles-storage (az) [Requires Outputs: parameter resourceGroupName.value, deploy storage.name, deploy webfrontend-identity.principalId]
   - push apiservice (dotnet) [Requires Outputs: deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT]
   - push webfrontend (dotnet) [Requires Outputs: deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT]
 Stage 4:
-  - deploy apiservice (az) [Requires Outputs: parameter resourceGroupName.value, deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN, deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_ID, deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT, deploy cae.AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID, push apiservice.image, push apiservice.port]
+  - deploy apiservice (az) [Requires Outputs: parameter resourceGroupName.value, deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN, deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_ID, deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT, deploy cae.AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID, push apiservice.image, push apiservice.port, parameter cache-password.value]
   - deploy webfrontend (az) [Requires Outputs: parameter resourceGroupName.value, deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_DEFAULT_DOMAIN, deploy cae.AZURE_CONTAINER_APPS_ENVIRONMENT_ID, deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT, deploy cae.AZURE_CONTAINER_REGISTRY_MANAGED_IDENTITY_ID, push webfrontend.image, push webfrontend.port, deploy webfrontend-identity.id, deploy webfrontend-identity.clientId, deploy storage.blobEndpoint]

@@ -9,6 +9,9 @@ param apiservice_containerimage string
 
 param apiservice_containerport string
 
+@secure()
+param cache_password_value string
+
 param cae_outputs_azure_container_registry_endpoint string
 
 param cae_outputs_azure_container_registry_managed_identity_id string
@@ -18,6 +21,12 @@ resource apiservice 'Microsoft.App/containerApps@2024-03-01' = {
   location: location
   properties: {
     configuration: {
+      secrets: [
+        {
+          name: 'connectionstrings--cache'
+          value: 'cache:6379,password=${cache_password_value}'
+        }
+      ]
       activeRevisionsMode: 'Single'
       ingress: {
         external: false
@@ -57,6 +66,10 @@ resource apiservice 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'HTTP_PORTS'
               value: apiservice_containerport
+            }
+            {
+              name: 'ConnectionStrings__cache'
+              secretRef: 'connectionstrings--cache'
             }
           ]
         }
