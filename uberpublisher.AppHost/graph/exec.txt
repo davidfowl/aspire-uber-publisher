@@ -74,7 +74,7 @@ dotnet publish $PROJECT_PATH \
   /p:PublishProfile=DefaultContainer \
   /p:ContainerRuntimeIdentifier=linux-x64 \
   /p:ContainerRegistry=$CAE_OUTPUTS_AZURE_CONTAINER_REGISTRY_ENDPOINT
-Working directory: C:\dev\git\aspire-uber-publisher\uberpublisher.ApiService
+Working directory: D:\dev\git\aspire-uber-publisher\uberpublisher.ApiService
 Environment variables:
   PROJECT_PATH=..\..\uberpublisher.ApiService\uberpublisher.ApiService.csproj
   CAE_OUTPUTS_AZURE_CONTAINER_REGISTRY_ENDPOINT=OUTPUT('deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT')
@@ -86,7 +86,7 @@ dotnet publish $PROJECT_PATH \
   /p:PublishProfile=DefaultContainer \
   /p:ContainerRuntimeIdentifier=linux-x64 \
   /p:ContainerRegistry=$CAE_OUTPUTS_AZURE_CONTAINER_REGISTRY_ENDPOINT
-Working directory: C:\dev\git\aspire-uber-publisher\uberpublisher.Web
+Working directory: D:\dev\git\aspire-uber-publisher\uberpublisher.Web
 Environment variables:
   PROJECT_PATH=..\..\uberpublisher.Web\uberpublisher.Web.csproj
   CAE_OUTPUTS_AZURE_CONTAINER_REGISTRY_ENDPOINT=OUTPUT('deploy cae.AZURE_CONTAINER_REGISTRY_ENDPOINT')
