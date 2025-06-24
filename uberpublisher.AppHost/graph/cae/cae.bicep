@@ -5,13 +5,13 @@ param userPrincipalId string
 
 param tags object = { }
 
-resource cae_mi 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+resource cae_mi 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
   name: take('cae_mi-${uniqueString(resourceGroup().id)}', 128)
   location: location
   tags: tags
 }
 
-resource cae_acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
+resource cae_acr 'Microsoft.ContainerRegistry/registries@2025-04-01' = {
   name: take('caeacr${uniqueString(resourceGroup().id)}', 50)
   location: location
   sku: {
@@ -30,7 +30,7 @@ resource cae_acr_cae_mi_AcrPull 'Microsoft.Authorization/roleAssignments@2022-04
   scope: cae_acr
 }
 
-resource cae_law 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+resource cae_law 'Microsoft.OperationalInsights/workspaces@2025-02-01' = {
   name: take('caelaw-${uniqueString(resourceGroup().id)}', 63)
   location: location
   properties: {
@@ -41,7 +41,7 @@ resource cae_law 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   tags: tags
 }
 
-resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
+resource cae 'Microsoft.App/managedEnvironments@2025-01-01' = {
   name: take('cae${uniqueString(resourceGroup().id)}', 24)
   location: location
   properties: {
@@ -69,19 +69,6 @@ resource aspireDashboard 'Microsoft.App/managedEnvironments/dotNetComponents@202
   }
   parent: cae
 }
-
-resource cae_Contributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(cae.id, userPrincipalId, subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c'))
-  properties: {
-    principalId: userPrincipalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')
-  }
-  scope: cae
-}
-
-output MANAGED_IDENTITY_NAME string = cae_mi.name
-
-output MANAGED_IDENTITY_PRINCIPAL_ID string = cae_mi.properties.principalId
 
 output AZURE_LOG_ANALYTICS_WORKSPACE_NAME string = cae_law.name
 

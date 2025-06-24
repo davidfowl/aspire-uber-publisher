@@ -19,7 +19,7 @@ param cae_outputs_azure_container_registry_endpoint string
 
 param cae_outputs_azure_container_registry_managed_identity_id string
 
-resource webfrontend 'Microsoft.App/containerApps@2024-03-01' = {
+resource webfrontend 'Microsoft.App/containerApps@2025-02-02-preview' = {
   name: 'webfrontend'
   location: location
   properties: {
@@ -36,6 +36,11 @@ resource webfrontend 'Microsoft.App/containerApps@2024-03-01' = {
           identity: cae_outputs_azure_container_registry_managed_identity_id
         }
       ]
+      runtime: {
+        dotnet: {
+          autoConfigureDataProtection: true
+        }
+      }
     }
     environmentId: cae_outputs_azure_container_apps_environment_id
     template: {

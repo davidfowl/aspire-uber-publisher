@@ -42,12 +42,17 @@ public class WorkflowGraph(TextWriter textWriter)
                     $"Deadlock detected in workflow graph. Unresolved nodes: {string.Join(", ", unresolvedNodes)}");
             }
 
-            // Sequential execution instead of parallel
-            foreach (var node in availableNodes)
+            var step = await progressReporter.CreateStepAsync($"Executing stage", cancellationToken);
+
+            // Parallel execution
+            var tasks = availableNodes.Select(async node =>
             {
-                inProgress.Add(node.Name);
-                // var act = await progressReporter.CreateActivityAsync(node.Name, $"Executing {node.Name}", false, cancellationToken);
-                // Console.WriteLine($"Executing \"{node.Name}\"");
+                var task = await progressReporter.CreateTaskAsync(step, $"Executing node {node.Name}", cancellationToken);
+
+                lock (inProgress)
+                {
+                    inProgress.Add(node.Name);
+                }
 
                 try
                 {
@@ -58,9 +63,12 @@ public class WorkflowGraph(TextWriter textWriter)
                         foreach (var output in node.GetRequiredOutputs(dep))
                         {
                             var key = (dep, output);
-                            if (outputs.TryGetValue(key, out var value))
+                            lock (outputs)
                             {
-                                requiredInputs[$"{dep}.{output}"] = value;
+                                if (outputs.TryGetValue(key, out var value))
+                                {
+                                    requiredInputs[$"{dep}.{output}"] = value;
+                                }
                             }
                         }
                     }
@@ -72,12 +80,12 @@ public class WorkflowGraph(TextWriter textWriter)
                         CancellationToken = cancellationToken
                     };
 
-                    context.OutputStream.WriteLine($"Executing node {node.Name} with inputs: {string.Join(", ", requiredInputs.Select(kvp => $"{kvp.Key}: {kvp.Value}"))}");
-                    
+                    await textWriter.WriteLineAsync($"Executing node {node.Name} with inputs: {string.Join(", ", requiredInputs.Select(kvp => $"{kvp.Key}: {kvp.Value}"))}");
+
                     await node.ExecuteAsync(context);
 
-                    context.OutputStream.WriteLine($"Node {node.Name} executed successfully.");
-                    context.OutputStream.WriteLine();
+                    await textWriter.WriteLineAsync($"Node {node.Name} executed successfully.");
+                    await textWriter.WriteLineAsync();
 
                     lock (outputs)
                     {
@@ -94,16 +102,22 @@ public class WorkflowGraph(TextWriter textWriter)
                 }
                 catch (Exception)
                 {
-                    // await progressReporter.UpdateActivityStatusAsync(act, status => status with { IsError = true }, cancellationToken);
+                    // Handle exceptions
                 }
                 finally
                 {
-                    inProgress.Remove(node.Name);
-                    // await progressReporter.UpdateActivityStatusAsync(act, status => status with { IsComplete = true }, cancellationToken);
-                }
+                    lock (inProgress)
+                    {
+                        inProgress.Remove(node.Name);
+                    }
 
-                System.Console.WriteLine();
-            }
+                    await progressReporter.CompleteTaskAsync(task, TaskCompletionState.Completed);
+                }
+            }).ToArray();
+
+            await Task.WhenAll(tasks);
+
+            await progressReporter.CompleteStepAsync(step, completionText: "Done executing graph");
         }
     }
 

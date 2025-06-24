@@ -423,7 +423,7 @@ internal class ShellExecutor(string command,
         //     Console.WriteLine($"  {input.Key}={input.Value}");
         // }
 
-        // await Task.Delay(Random.Shared.Next(1000, 10000), cancellationToken); // Simulate async work
+        await Task.Delay(Random.Shared.Next(1000, 5000)); // Simulate async work
 
         // Map required inputs to environment variables
         foreach (var (key, value) in context.RequiredInputs)
